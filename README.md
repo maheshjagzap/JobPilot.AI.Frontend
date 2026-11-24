@@ -18,6 +18,10 @@ npm run dev
 
 Set `VITE_API_BASE_URL` to the real ASP.NET Core API origin discovered from backend launch settings. Cookies require a compatible same-site localhost setup.
 
+## Demo mode without a backend
+
+Set `VITE_ENABLE_DEMO_MODE=true` to bypass login locally and open the complete routed workspace. Demo mode only enables UI preview access; it does not create, submit, or confirm any backend data. Set it to `false` when authentication is implemented.
+
 ## Scripts
 
 ```powershell

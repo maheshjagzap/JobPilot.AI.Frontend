@@ -166,7 +166,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
 function RouteGuard({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const [initialized] = useState(true)
-  const [authenticated] = useState(() => sessionStorage.getItem('jobpilot-auth') === 'true')
+  const [authenticated] = useState(() =>
+    import.meta.env.VITE_ENABLE_DEMO_MODE === 'true' ||
+    sessionStorage.getItem('jobpilot-auth') === 'true',
+  )
 
   if (!initialized) return <div className="loading-page">Loading workspace...</div>
   if (!authenticated) return <Navigate to="/login" replace state={{ from: location.pathname }} />

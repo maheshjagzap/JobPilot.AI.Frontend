@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BriefcaseBusiness, Eye, EyeOff, LockKeyhole } from 'lucide-react'
 
@@ -6,6 +6,13 @@ export default function Login() {
   const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (import.meta.env.VITE_ENABLE_DEMO_MODE === 'true') {
+      sessionStorage.setItem('jobpilot-auth', 'true')
+      navigate('/dashboard', { replace: true })
+    }
+  }, [navigate])
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
