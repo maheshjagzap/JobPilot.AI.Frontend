@@ -24,6 +24,8 @@ For local development only, set `VITE_ENABLE_DEMO_MODE=true` to open the workspa
 
 Profile sections can be saved independently as local browser drafts. These drafts stay on the current browser/device and are not synced to an account or backend. Clear them from the browser's site data when needed.
 
+The candidate profile includes repeatable entries for experience, projects, education, certifications, and skills. Each section can be saved independently as a local browser draft.
+
 The Skills section supports multiple entries. Settings can store a local request for future Naukri, Gmail, LinkedIn, Indeed, or other-provider linking; this is only an opt-in preference, not an active connection. Actual account linking requires secure backend authorization flows.
 
 ## Scripts

@@ -1,5 +1,5 @@
 import { useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
-import { Award, BriefcaseBusiness, Plus, Save, Trash2, UserRound } from 'lucide-react'
+import { Award, BriefcaseBusiness, Code2, Plus, Save, Trash2, UserRound } from 'lucide-react'
 import { z } from 'zod'
 
 type Experience = {
@@ -31,6 +31,17 @@ type Certification = {
   expiryDate: string
   credentialId: string
   credentialUrl: string
+}
+
+type Project = {
+  id: number
+  name: string
+  role: string
+  startDate: string
+  endDate: string
+  technologies: string[]
+  description: string
+  projectUrl: string
 }
 
 type PreferredLocation = {
@@ -83,6 +94,10 @@ const educationSchema = z.array(z.object({
 const certificationSchema = z.array(z.object({
   id: z.number(), name: z.string(), issuer: z.string(), issueDate: z.string(),
   expiryDate: z.string(), credentialId: z.string(), credentialUrl: z.string(),
+}))
+const projectSchema = z.array(z.object({
+  id: z.number(), name: z.string(), role: z.string(), startDate: z.string(),
+  endDate: z.string(), technologies: z.array(z.string()), description: z.string(), projectUrl: z.string(),
 }))
 const personalSchema = z.object({
   fullName: z.string(), preferredName: z.string(), email: z.string(), phone: z.string(),
@@ -182,6 +197,7 @@ export default function Profile() {
   const experienceDraft = useBrowserDraft<Experience[]>('jobpilot-profile-experience', [], experienceSchema)
   const educationDraft = useBrowserDraft<Education[]>('jobpilot-profile-education', [], educationSchema)
   const certificationDraft = useBrowserDraft<Certification[]>('jobpilot-profile-certifications', [], certificationSchema)
+  const projectDraft = useBrowserDraft<Project[]>('jobpilot-profile-projects', [], projectSchema)
   const personalDraft = useBrowserDraft<PersonalDetails>('jobpilot-profile-personal', {
     fullName: '', preferredName: '', email: '', phone: '', city: '', country: '', summary: '',
   }, personalSchema)
@@ -198,6 +214,8 @@ export default function Profile() {
   const setEducations = educationDraft.setValue
   const certifications = certificationDraft.value
   const setCertifications = certificationDraft.setValue
+  const projects = projectDraft.value
+  const setProjects = projectDraft.setValue
   const personal = personalDraft.value
   const setPersonal = personalDraft.setValue
   const skills = skillDraft.value
@@ -215,7 +233,7 @@ export default function Profile() {
   const [citySelections, setCitySelections] = useState<Record<number, string>>({})
   const [customCityInputs, setCustomCityInputs] = useState<Record<number, string>>({})
   const nextId = useRef(0)
-  const tabs = ['Personal', 'Experience', 'Education', 'Certifications', 'Skills', 'Preferences', 'Relocation']
+  const tabs = ['Personal', 'Experience', 'Projects', 'Education', 'Certifications', 'Skills', 'Preferences', 'Relocation']
 
   function createId() {
     nextId.current += 1
@@ -251,6 +269,23 @@ export default function Profile() {
       startYear: value(data, 'startYear'),
       endYear: value(data, 'endYear'),
       grade: value(data, 'grade'),
+    }])
+    form.reset()
+  }
+
+  function addProject(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const data = new FormData(form)
+    setProjects((entries) => [...entries, {
+      id: createId(),
+      name: value(data, 'name'),
+      role: value(data, 'role'),
+      startDate: value(data, 'startDate'),
+      endDate: value(data, 'endDate'),
+      technologies: value(data, 'technologies').split(',').map((technology) => technology.trim()).filter(Boolean),
+      description: value(data, 'description'),
+      projectUrl: value(data, 'projectUrl'),
     }])
     form.reset()
   }
@@ -420,6 +455,36 @@ export default function Profile() {
               ))}
             </EntryList>
             <SectionSave status={educationDraft.status} onSave={educationDraft.save}/>
+          </>}
+
+          {tab === 'Projects' && <>
+            <form className="form-grid repeatable-form" onSubmit={addProject}>
+              <div className="field"><label htmlFor="project-name">Project name *</label><input id="project-name" name="name" required placeholder="Project title"/></div>
+              <div className="field"><label htmlFor="project-role">Your role</label><input id="project-role" name="role" placeholder="e.g. Developer"/></div>
+              <div className="field"><label htmlFor="project-start">Start date</label><input id="project-start" name="startDate" type="date"/></div>
+              <div className="field"><label htmlFor="project-end">End date</label><input id="project-end" name="endDate" type="date"/></div>
+              <div className="field full"><label htmlFor="project-technologies">Technologies used</label><input id="project-technologies" name="technologies" placeholder="Comma-separated, e.g. C#, React, SQL Server"/></div>
+              <div className="field full"><label htmlFor="project-description">Project description</label><textarea id="project-description" name="description" placeholder="What did the project do, and what did you contribute?"/></div>
+              <div className="field full"><label htmlFor="project-url">Project or repository link</label><input id="project-url" name="projectUrl" type="url" placeholder="https://..."/></div>
+              <div className="form-action full"><button className="secondary-button" type="submit"><Plus size={17}/>Add project</button></div>
+            </form>
+            <EntryList title="Projects added" empty="Your projects will appear here after you add them.">
+              {projects.map((project) => (
+                <article className="profile-entry" key={project.id}>
+                  <div className="profile-entry-icon"><Code2 size={18}/></div>
+                  <div className="profile-entry-copy">
+                    <strong>{project.name}</strong>
+                    {project.role && <span>{project.role}</span>}
+                    {(project.startDate || project.endDate) && <small>{[project.startDate, project.endDate].filter(Boolean).join(' — ')}</small>}
+                    {project.technologies.length > 0 && <small>Technologies: {project.technologies.join(', ')}</small>}
+                    {project.description && <p>{project.description}</p>}
+                    {project.projectUrl && <a href={project.projectUrl} target="_blank" rel="noreferrer">View project</a>}
+                  </div>
+                  <button className="entry-remove" type="button" aria-label={`Remove ${project.name}`} onClick={() => setProjects((items) => items.filter((item) => item.id !== project.id))}><Trash2 size={16}/></button>
+                </article>
+              ))}
+            </EntryList>
+            <SectionSave status={projectDraft.status} onSave={projectDraft.save}/>
           </>}
 
           {tab === 'Certifications' && <>
