@@ -8,9 +8,8 @@ export default function Login() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (import.meta.env.VITE_ENABLE_DEMO_MODE === 'true') {
-      sessionStorage.setItem('jobpilot-auth', 'true')
-      navigate('/dashboard', { replace: true })
+    if (import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_MODE === 'true') {
+      navigate('/agent', { replace: true })
     }
   }, [navigate])
 
@@ -46,7 +45,6 @@ export default function Login() {
           </div>
         </div>
         <button className="primary-button" type="submit">Sign in</button>
-        <button type="button" className="secondary-button" onClick={() => { sessionStorage.setItem('jobpilot-auth', 'true'); navigate('/dashboard') }} style={{ width: '100%', marginTop: 8 }}>Preview workspace</button>
       </form>
     </div>
   )

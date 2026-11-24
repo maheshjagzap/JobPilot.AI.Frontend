@@ -4,7 +4,7 @@ React + TypeScript + Vite frontend for the JobPilot AI personal job-search works
 
 ## Status
 
-The backend source and API contract are not present in this workspace. The frontend is fully routed and designed, but API-backed features intentionally remain unavailable. It does not fabricate jobs, metrics, profile records, application states, automation runs, or submission success.
+The backend source and API contract are not present in this workspace. The frontend provides an agent-first workspace and secondary screens, but task execution and API-backed features intentionally remain unavailable. It does not fabricate jobs, metrics, profile records, application states, agent progress, or submission success.
 
 ## Install
 
@@ -18,9 +18,13 @@ npm run dev
 
 Set `VITE_API_BASE_URL` to the real ASP.NET Core API origin discovered from backend launch settings. Cookies require a compatible same-site localhost setup.
 
-## Demo mode without a backend
+## Local UI preview without a backend
 
-Set `VITE_ENABLE_DEMO_MODE=true` to bypass login locally and open the complete routed workspace. Demo mode only enables UI preview access; it does not create, submit, or confirm any backend data. Set it to `false` when authentication is implemented.
+For local development only, set `VITE_ENABLE_DEMO_MODE=true` to open the workspace without backend authentication. The bypass is guarded by Vite's development mode and is not enabled in production builds. This only previews the UI; agent commands are not sent and no backend data is created or confirmed. Keep the setting `false` when authentication is implemented.
+
+Profile sections can be saved independently as local browser drafts. These drafts stay on the current browser/device and are not synced to an account or backend. Clear them from the browser's site data when needed.
+
+The Skills section supports multiple entries. Settings can store a local request for future Naukri, Gmail, LinkedIn, Indeed, or other-provider linking; this is only an opt-in preference, not an active connection. Actual account linking requires secure backend authorization flows.
 
 ## Scripts
 
@@ -37,4 +41,4 @@ npm run preview
 
 - `VITE_APP_NAME`: Display name.
 - `VITE_API_BASE_URL`: ASP.NET Core API base URL. No secret values.
-- `VITE_ENABLE_DEMO_MODE`: Must remain false unless a backend-independent demo is explicitly added.
+- `VITE_ENABLE_DEMO_MODE`: Enables local UI preview only in development; keep false by default.

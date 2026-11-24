@@ -1,34 +1,600 @@
-import { useState } from 'react'
-import { Save, UserRound } from 'lucide-react'
+import { useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
+import { Award, BriefcaseBusiness, Plus, Save, Trash2, UserRound } from 'lucide-react'
+import { z } from 'zod'
+
+type Experience = {
+  id: number
+  title: string
+  employer: string
+  location: string
+  startDate: string
+  endDate: string
+  current: boolean
+  description: string
+}
+
+type Education = {
+  id: number
+  institution: string
+  degree: string
+  field: string
+  startYear: string
+  endYear: string
+  grade: string
+}
+
+type Certification = {
+  id: number
+  name: string
+  issuer: string
+  issueDate: string
+  expiryDate: string
+  credentialId: string
+  credentialUrl: string
+}
+
+type PreferredLocation = {
+  id: number
+  country: string
+  cities: string[]
+}
+
+type PersonalDetails = {
+  fullName: string
+  preferredName: string
+  email: string
+  phone: string
+  city: string
+  country: string
+  summary: string
+}
+
+type SkillDetails = {
+  id: number
+  name: string
+  category: string
+  evidence: string
+}
+
+type Preferences = {
+  targetRoles: string[]
+  salaryMin: string
+  salaryMax: string
+  salaryCurrency: string
+  salaryPeriod: string
+  workModes: string[]
+}
+
+type Relocation = {
+  currentCountry: string
+  willingness: string
+  authorization: string
+  preferredLocations: PreferredLocation[]
+}
+
+const experienceSchema = z.array(z.object({
+  id: z.number(), title: z.string(), employer: z.string(), location: z.string(),
+  startDate: z.string(), endDate: z.string(), current: z.boolean(), description: z.string(),
+}))
+const educationSchema = z.array(z.object({
+  id: z.number(), institution: z.string(), degree: z.string(), field: z.string(),
+  startYear: z.string(), endYear: z.string(), grade: z.string(),
+}))
+const certificationSchema = z.array(z.object({
+  id: z.number(), name: z.string(), issuer: z.string(), issueDate: z.string(),
+  expiryDate: z.string(), credentialId: z.string(), credentialUrl: z.string(),
+}))
+const personalSchema = z.object({
+  fullName: z.string(), preferredName: z.string(), email: z.string(), phone: z.string(),
+  city: z.string(), country: z.string(), summary: z.string(),
+})
+const skillSchema = z.array(z.object({ id: z.number(), name: z.string(), category: z.string(), evidence: z.string() }))
+const preferencesSchema = z.object({
+  targetRoles: z.array(z.string()), salaryMin: z.string(), salaryMax: z.string(),
+  salaryCurrency: z.string(), salaryPeriod: z.string(), workModes: z.array(z.string()),
+})
+const relocationSchema = z.object({
+  currentCountry: z.string(), willingness: z.string(), authorization: z.string(),
+  preferredLocations: z.array(z.object({ id: z.number(), country: z.string(), cities: z.array(z.string()) })),
+})
+
+const COUNTRY_SUGGESTIONS = [
+  'Australia',
+  'Canada',
+  'Germany',
+  'India',
+  'Ireland',
+  'Netherlands',
+  'Singapore',
+  'United Arab Emirates',
+  'United Kingdom',
+  'United States',
+]
+
+const POPULAR_CITIES: Record<string, string[]> = {
+  australia: ['Melbourne', 'Perth', 'Sydney'],
+  canada: ['Calgary', 'Montreal', 'Toronto', 'Vancouver'],
+  germany: ['Berlin', 'Frankfurt', 'Hamburg', 'Munich'],
+  india: ['Bengaluru', 'Chennai', 'Delhi', 'Hyderabad', 'Mumbai', 'Pune'],
+  ireland: ['Cork', 'Dublin', 'Galway'],
+  netherlands: ['Amsterdam', 'Eindhoven', 'Rotterdam', 'Utrecht'],
+  singapore: ['Singapore'],
+  'united arab emirates': ['Abu Dhabi', 'Dubai'],
+  'united kingdom': ['Birmingham', 'London', 'Manchester'],
+  'united states': ['Austin', 'Boston', 'New York', 'Seattle', 'San Francisco'],
+}
+
+function value(formData: FormData, key: string) {
+  return String(formData.get(key) ?? '').trim()
+}
+
+function LocalEntryNotice() {
+  return (
+    <div className="notice">
+      <UserRound size={18}/>
+      <span>Fields marked * are required. Save each section independently to this browser. Drafts are not synced to an account because the profile API is not connected.</span>
+    </div>
+  )
+}
+
+function useBrowserDraft<T>(key: string, initialValue: T, schema: z.ZodType<T>) {
+  const [initial] = useState(() => {
+    let raw: string | null
+    try {
+      raw = localStorage.getItem(key)
+    } catch {
+      return { value: initialValue, status: 'Browser storage is unavailable. Changes cannot be saved here.' }
+    }
+    if (raw === null) return { value: initialValue, status: 'No saved draft in this browser.' }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      return { value: initialValue, status: 'The saved draft could not be read. Saving this section will replace it.' }
+    }
+    const result = schema.safeParse(parsed)
+    return result.success
+      ? { value: result.data, status: 'Draft loaded from this browser. It is not synced to an account.' }
+      : { value: initialValue, status: 'The saved draft has an invalid format. Saving this section will replace it.' }
+  })
+  const [value, setValue] = useState<T>(initial.value)
+  const [status, setStatus] = useState(initial.status)
+
+  const updateValue: Dispatch<SetStateAction<T>> = (nextValue) => {
+    setValue(nextValue)
+    setStatus('Unsaved changes. Save this section to keep the draft.')
+  }
+
+  function save() {
+    try {
+      localStorage.setItem(key, JSON.stringify(value))
+      setStatus('Saved in this browser only. Not synced to an account.')
+    } catch {
+      setStatus('Could not save to browser storage. Your changes remain unsaved.')
+    }
+  }
+
+  return { value, setValue: updateValue, status, save }
+}
 
 export default function Profile() {
   const [tab, setTab] = useState('Personal')
-  const tabs = ['Personal', 'Experience', 'Education', 'Skills', 'Preferences', 'Relocation']
+  const experienceDraft = useBrowserDraft<Experience[]>('jobpilot-profile-experience', [], experienceSchema)
+  const educationDraft = useBrowserDraft<Education[]>('jobpilot-profile-education', [], educationSchema)
+  const certificationDraft = useBrowserDraft<Certification[]>('jobpilot-profile-certifications', [], certificationSchema)
+  const personalDraft = useBrowserDraft<PersonalDetails>('jobpilot-profile-personal', {
+    fullName: '', preferredName: '', email: '', phone: '', city: '', country: '', summary: '',
+  }, personalSchema)
+  const skillDraft = useBrowserDraft<SkillDetails[]>('jobpilot-profile-skills', [], skillSchema)
+  const preferencesDraft = useBrowserDraft<Preferences>('jobpilot-profile-preferences', {
+    targetRoles: [], salaryMin: '', salaryMax: '', salaryCurrency: 'INR', salaryPeriod: 'Yearly', workModes: [],
+  }, preferencesSchema)
+  const relocationDraft = useBrowserDraft<Relocation>('jobpilot-profile-relocation', {
+    currentCountry: '', willingness: 'Not specified', authorization: '', preferredLocations: [],
+  }, relocationSchema)
+  const experiences = experienceDraft.value
+  const setExperiences = experienceDraft.setValue
+  const educations = educationDraft.value
+  const setEducations = educationDraft.setValue
+  const certifications = certificationDraft.value
+  const setCertifications = certificationDraft.setValue
+  const personal = personalDraft.value
+  const setPersonal = personalDraft.setValue
+  const skills = skillDraft.value
+  const setSkills = skillDraft.setValue
+  const preferences = preferencesDraft.value
+  const setPreferences = preferencesDraft.setValue
+  const relocation = relocationDraft.value
+  const setRelocation = relocationDraft.setValue
+  const [roleInput, setRoleInput] = useState('')
+  const [skillName, setSkillName] = useState('')
+  const [skillCategory, setSkillCategory] = useState('Backend')
+  const [skillEvidence, setSkillEvidence] = useState('')
+  const preferredLocations = relocation.preferredLocations
+  const [countryInput, setCountryInput] = useState('')
+  const [citySelections, setCitySelections] = useState<Record<number, string>>({})
+  const [customCityInputs, setCustomCityInputs] = useState<Record<number, string>>({})
+  const nextId = useRef(0)
+  const tabs = ['Personal', 'Experience', 'Education', 'Certifications', 'Skills', 'Preferences', 'Relocation']
+
+  function createId() {
+    nextId.current += 1
+    return nextId.current
+  }
+
+  function addExperience(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const data = new FormData(form)
+    setExperiences((entries) => [...entries, {
+      id: createId(),
+      title: value(data, 'title'),
+      employer: value(data, 'employer'),
+      location: value(data, 'location'),
+      startDate: value(data, 'startDate'),
+      endDate: value(data, 'endDate'),
+      current: data.get('current') === 'on',
+      description: value(data, 'description'),
+    }])
+    form.reset()
+  }
+
+  function addEducation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const data = new FormData(form)
+    setEducations((entries) => [...entries, {
+      id: createId(),
+      institution: value(data, 'institution'),
+      degree: value(data, 'degree'),
+      field: value(data, 'field'),
+      startYear: value(data, 'startYear'),
+      endYear: value(data, 'endYear'),
+      grade: value(data, 'grade'),
+    }])
+    form.reset()
+  }
+
+  function addCertification(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const data = new FormData(form)
+    setCertifications((entries) => [...entries, {
+      id: createId(),
+      name: value(data, 'name'),
+      issuer: value(data, 'issuer'),
+      issueDate: value(data, 'issueDate'),
+      expiryDate: value(data, 'expiryDate'),
+      credentialId: value(data, 'credentialId'),
+      credentialUrl: value(data, 'credentialUrl'),
+    }])
+    form.reset()
+  }
+
+  function addTargetRole() {
+    const role = roleInput.trim()
+    if (!role || preferences.targetRoles.some((item) => item.toLowerCase() === role.toLowerCase())) return
+    setPreferences((current) => ({ ...current, targetRoles: [...current.targetRoles, role] }))
+    setRoleInput('')
+  }
+
+  function addSkill(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const name = skillName.trim()
+    if (!name || skills.some((skill) => skill.name.toLowerCase() === name.toLowerCase())) return
+    setSkills((items) => [...items, {
+      id: createId(),
+      name,
+      category: skillCategory,
+      evidence: skillEvidence.trim(),
+    }])
+    setSkillName('')
+    setSkillCategory('Backend')
+    setSkillEvidence('')
+  }
+
+  function toggleWorkMode(mode: string) {
+    setPreferences((current) => {
+      const selected = current.workModes
+      if (mode === 'Flexible / Any') {
+        return { ...current, workModes: selected.includes(mode) ? [] : [mode] }
+      }
+      const withoutFlexible = selected.filter((item) => item !== 'Flexible / Any')
+      const workModes = withoutFlexible.includes(mode)
+        ? withoutFlexible.filter((item) => item !== mode)
+        : [...withoutFlexible, mode]
+      return { ...current, workModes }
+    })
+  }
+
+  function addPreferredCountry() {
+    const country = countryInput.trim()
+    if (!country || preferredLocations.some((item) => item.country.toLowerCase() === country.toLowerCase())) return
+    setRelocation((current) => ({
+      ...current,
+      preferredLocations: [...current.preferredLocations, { id: createId(), country, cities: [] }],
+    }))
+    setCountryInput('')
+  }
+
+  function addCity(locationId: number, cityValue: string) {
+    const city = cityValue.trim()
+    if (!city) return
+    setRelocation((current) => ({
+      ...current,
+      preferredLocations: current.preferredLocations.map((item) => (
+      item.id === locationId && !item.cities.some((existing) => existing.toLowerCase() === city.toLowerCase())
+        ? { ...item, cities: [...item.cities, city] }
+        : item
+      )),
+    }))
+  }
+
+  const salaryRangeError =
+    (preferences.salaryMin && Number(preferences.salaryMin) < 0) ||
+    (preferences.salaryMax && Number(preferences.salaryMax) < 0)
+      ? 'Salary values cannot be negative.'
+      : preferences.salaryMin && preferences.salaryMax && Number(preferences.salaryMin) > Number(preferences.salaryMax)
+        ? 'Minimum salary must not exceed maximum salary.'
+        : ''
+
   return (
     <div>
-      <div className="page-header"><div><h1>Candidate Profile</h1><p>Your verified source of truth</p></div><div className="header-actions"><button className="secondary-button">Cancel</button><button className="primary-button"><Save size={17}/>Save changes</button></div></div>
-      <div className="notice"><UserRound size={18}/><span>Profile saving is disabled until the real profile DTO and API endpoint are provided.</span></div>
+      <div className="page-header">
+        <div><h1>Candidate Profile</h1><p>Your verified source of truth</p></div>
+      </div>
+      <LocalEntryNotice />
       <div className="card">
-        <div className="tabs" role="tablist">{tabs.map((item)=><button key={item} className={`tab ${tab===item?'active':''}`} onClick={()=>setTab(item)}>{item}</button>)}</div>
+        <div className="tabs" role="tablist" aria-label="Profile sections">
+          {tabs.map((item) => (
+            <button
+              aria-selected={tab === item}
+              className={`tab ${tab === item ? 'active' : ''}`}
+              key={item}
+              onClick={() => setTab(item)}
+              role="tab"
+              type="button"
+            >{item}</button>
+          ))}
+        </div>
         <div className="card-body">
-          <div className="form-grid">
-            {tab === 'Personal' && <>
-              <div className="field"><label htmlFor="name">Full legal name</label><input id="name" placeholder="Your full name"/></div>
-              <div className="field"><label htmlFor="preferred">Preferred name</label><input id="preferred" placeholder="Optional"/></div>
-              <div className="field"><label htmlFor="email">Email</label><input id="email" type="email" placeholder="you@example.com"/></div>
-              <div className="field"><label htmlFor="phone">Phone</label><input id="phone" placeholder="+91..."/></div>
-              <div className="field"><label htmlFor="city">Current city</label><input id="city" placeholder="City"/></div>
-              <div className="field"><label htmlFor="country">Country</label><input id="country" placeholder="Country"/></div>
-              <div className="field full"><label htmlFor="summary">Professional summary</label><textarea id="summary" placeholder="Summarize your experience without exaggeration"/></div>
-            </>}
-            {tab === 'Experience' && <><div className="field"><label>Job title</label><input placeholder="Current job title"/></div><div className="field"><label>Employer</label><input placeholder="Company"/></div><div className="field"><label>Start date</label><input type="date"/></div><div className="field"><label>End date</label><input type="date"/></div><div className="field full"><label>Responsibilities and achievements</label><textarea placeholder="Describe verified responsibilities"/></div></>}
-            {tab === 'Education' && <><div className="field"><label>Institution</label><input/></div><div className="field"><label>Degree</label><input/></div><div className="field"><label>Field of study</label><input/></div><div className="field"><label>End year</label><input type="number"/></div></>}
-            {tab === 'Skills' && <><div className="field"><label>Skill name</label><input placeholder="e.g. ASP.NET Core"/></div><div className="field"><label>Category</label><select><option>Backend</option><option>Frontend</option><option>Cloud</option><option>Tools</option></select></div><div className="field full"><label>Supporting experience</label><textarea placeholder="Describe the evidence for this skill"/></div></>}
-            {tab === 'Preferences' && <><div className="field"><label>Target roles</label><input/></div><div className="field"><label>Work model</label><select><option>Remote</option><option>Hybrid</option><option>On-site</option></select></div><div className="field"><label>Minimum salary</label><input type="number"/></div><div className="field"><label>Currency</label><select><option>INR</option><option>USD</option><option>EUR</option></select></div></>}
-            {tab === 'Relocation' && <><div className="field"><label>Current country</label><input/></div><div className="field"><label>Willing to relocate</label><select><option>Not specified</option><option>Yes</option><option>No</option></select></div><div className="field full"><label>Work authorization</label><textarea placeholder="List countries and authorization status only if you confirm them"/></div></>}
-          </div>
+          {tab === 'Personal' && <form className="form-grid" onSubmit={(event) => { event.preventDefault(); personalDraft.save() }}>
+            <div className="field"><label htmlFor="name">Full legal name *</label><input id="name" required value={personal.fullName} onChange={(event) => setPersonal((current) => ({ ...current, fullName: event.target.value }))} placeholder="Your full name"/></div>
+            <div className="field"><label htmlFor="preferred">Preferred name</label><input id="preferred" value={personal.preferredName} onChange={(event) => setPersonal((current) => ({ ...current, preferredName: event.target.value }))} placeholder="Optional"/></div>
+            <div className="field"><label htmlFor="email">Email *</label><input id="email" type="email" required value={personal.email} onChange={(event) => setPersonal((current) => ({ ...current, email: event.target.value }))} placeholder="you@example.com"/></div>
+            <div className="field"><label htmlFor="phone">Phone</label><input id="phone" value={personal.phone} onChange={(event) => setPersonal((current) => ({ ...current, phone: event.target.value }))} placeholder="+91..."/></div>
+            <div className="field"><label htmlFor="city">Current city</label><input id="city" value={personal.city} onChange={(event) => setPersonal((current) => ({ ...current, city: event.target.value }))} placeholder="City"/></div>
+            <div className="field"><label htmlFor="country">Country</label><input id="country" value={personal.country} onChange={(event) => setPersonal((current) => ({ ...current, country: event.target.value }))} placeholder="Country"/></div>
+            <div className="field full"><label htmlFor="summary">Professional summary</label><textarea id="summary" value={personal.summary} onChange={(event) => setPersonal((current) => ({ ...current, summary: event.target.value }))} placeholder="Summarize your experience without exaggeration"/></div>
+            <SectionSave status={personalDraft.status} onSave={personalDraft.save} submit/>
+          </form>}
+
+          {tab === 'Experience' && <>
+            <form className="form-grid repeatable-form" onSubmit={addExperience}>
+              <div className="field"><label htmlFor="experience-title">Job title *</label><input id="experience-title" name="title" required placeholder="e.g. Software Engineer"/></div>
+              <div className="field"><label htmlFor="experience-employer">Employer *</label><input id="experience-employer" name="employer" required placeholder="Company name"/></div>
+              <div className="field"><label htmlFor="experience-location">Location</label><input id="experience-location" name="location" placeholder="City, country"/></div>
+              <div className="field"><label htmlFor="experience-start">Start date *</label><input id="experience-start" name="startDate" type="date" required/></div>
+              <div className="field"><label htmlFor="experience-end">End date</label><input id="experience-end" name="endDate" type="date"/></div>
+              <label className="current-role"><input name="current" type="checkbox"/> I currently work here</label>
+              <div className="field full"><label htmlFor="experience-description">Responsibilities and achievements</label><textarea id="experience-description" name="description" placeholder="Describe verified responsibilities and achievements"/></div>
+              <div className="form-action full"><button className="secondary-button" type="submit"><Plus size={17}/>Add experience</button></div>
+            </form>
+            <EntryList title="Experience added" empty="Your experience entries will appear here after you add them.">
+              {experiences.map((entry) => (
+                <article className="profile-entry" key={entry.id}>
+                  <div className="profile-entry-icon"><BriefcaseBusiness size={18}/></div>
+                  <div className="profile-entry-copy">
+                    <strong>{entry.title}</strong><span>{entry.employer}{entry.location ? ` · ${entry.location}` : ''}</span>
+                    <small>{entry.startDate}{entry.current ? ' · Present' : entry.endDate ? ` — ${entry.endDate}` : ''}</small>
+                    {entry.description && <p>{entry.description}</p>}
+                  </div>
+                  <button className="entry-remove" type="button" aria-label={`Remove ${entry.title}`} onClick={() => setExperiences((items) => items.filter((item) => item.id !== entry.id))}><Trash2 size={16}/></button>
+                </article>
+              ))}
+            </EntryList>
+            <SectionSave status={experienceDraft.status} onSave={experienceDraft.save}/>
+          </>}
+
+          {tab === 'Education' && <>
+            <form className="form-grid repeatable-form" onSubmit={addEducation}>
+              <div className="field"><label htmlFor="education-institution">Institution *</label><input id="education-institution" name="institution" required placeholder="School or university"/></div>
+              <div className="field"><label htmlFor="education-degree">Degree *</label><input id="education-degree" name="degree" required placeholder="Degree or qualification"/></div>
+              <div className="field"><label htmlFor="education-field">Field of study *</label><input id="education-field" name="field" required placeholder="Major or subject"/></div>
+              <div className="field"><label htmlFor="education-start">Start year</label><input id="education-start" name="startYear" type="number" min="1900" max="2100" placeholder="2020"/></div>
+              <div className="field"><label htmlFor="education-end">End year</label><input id="education-end" name="endYear" type="number" min="1900" max="2100" placeholder="2024"/></div>
+              <div className="field"><label htmlFor="education-grade">Grade (optional)</label><input id="education-grade" name="grade" placeholder="Add only if you choose"/></div>
+              <div className="form-action full"><button className="secondary-button" type="submit"><Plus size={17}/>Add education</button></div>
+            </form>
+            <EntryList title="Education added" empty="Your education entries will appear here after you add them.">
+              {educations.map((entry) => (
+                <article className="profile-entry" key={entry.id}>
+                  <div className="profile-entry-icon"><UserRound size={18}/></div>
+                  <div className="profile-entry-copy">
+                    <strong>{entry.degree} · {entry.field}</strong><span>{entry.institution}</span>
+                    <small>{[entry.startYear, entry.endYear].filter(Boolean).join(' — ')}</small>
+                    {entry.grade && <small>Grade: {entry.grade}</small>}
+                  </div>
+                  <button className="entry-remove" type="button" aria-label={`Remove ${entry.degree}`} onClick={() => setEducations((items) => items.filter((item) => item.id !== entry.id))}><Trash2 size={16}/></button>
+                </article>
+              ))}
+            </EntryList>
+            <SectionSave status={educationDraft.status} onSave={educationDraft.save}/>
+          </>}
+
+          {tab === 'Certifications' && <>
+            <form className="form-grid repeatable-form" onSubmit={addCertification}>
+              <div className="field"><label htmlFor="certification-name">Certification name *</label><input id="certification-name" name="name" required placeholder="Certification title"/></div>
+              <div className="field"><label htmlFor="certification-issuer">Issuing organization *</label><input id="certification-issuer" name="issuer" required placeholder="Organization name"/></div>
+              <div className="field"><label htmlFor="certification-issued">Issue date</label><input id="certification-issued" name="issueDate" type="date"/></div>
+              <div className="field"><label htmlFor="certification-expiry">Expiry date</label><input id="certification-expiry" name="expiryDate" type="date"/></div>
+              <div className="field"><label htmlFor="certification-id">Credential ID</label><input id="certification-id" name="credentialId" placeholder="Optional"/></div>
+              <div className="field"><label htmlFor="certification-url">Credential URL</label><input id="certification-url" name="credentialUrl" type="url" placeholder="https://..."/></div>
+              <div className="form-action full"><button className="secondary-button" type="submit"><Plus size={17}/>Add certification</button></div>
+            </form>
+            <EntryList title="Certifications added" empty="Your certifications will appear here after you add them.">
+              {certifications.map((entry) => (
+                <article className="profile-entry" key={entry.id}>
+                  <div className="profile-entry-icon"><Award size={18}/></div>
+                  <div className="profile-entry-copy">
+                    <strong>{entry.name}</strong><span>{entry.issuer}</span>
+                    <small>{entry.issueDate ? `Issued ${entry.issueDate}` : ''}{entry.expiryDate ? ` · Expires ${entry.expiryDate}` : ''}</small>
+                    {entry.credentialId && <small>Credential ID: {entry.credentialId}</small>}
+                    {entry.credentialUrl && <a href={entry.credentialUrl} target="_blank" rel="noreferrer">View credential</a>}
+                  </div>
+                  <button className="entry-remove" type="button" aria-label={`Remove ${entry.name}`} onClick={() => setCertifications((items) => items.filter((item) => item.id !== entry.id))}><Trash2 size={16}/></button>
+                </article>
+              ))}
+            </EntryList>
+            <SectionSave status={certificationDraft.status} onSave={certificationDraft.save}/>
+          </>}
+
+          {tab === 'Skills' && <>
+            <form className="form-grid repeatable-form" onSubmit={addSkill}>
+              <div className="field"><label htmlFor="skill-name">Skill name *</label><input id="skill-name" required value={skillName} onChange={(event) => setSkillName(event.target.value)} placeholder="e.g. ASP.NET Core"/></div>
+              <div className="field"><label htmlFor="skill-category">Category</label><select id="skill-category" value={skillCategory} onChange={(event) => setSkillCategory(event.target.value)}><option>Backend</option><option>Frontend</option><option>Cloud</option><option>Tools</option></select></div>
+              <div className="field full"><label htmlFor="skill-evidence">Supporting experience</label><textarea value={skillEvidence} onChange={(event) => setSkillEvidence(event.target.value)} id="skill-evidence" placeholder="Describe the evidence for this skill"/></div>
+              <div className="form-action full"><button className="secondary-button" type="submit"><Plus size={17}/>Add skill</button></div>
+            </form>
+            <EntryList title="Skills added" empty="Your skills will appear here after you add them.">
+              {skills.map((skill) => (
+                <article className="profile-entry" key={skill.id}>
+                  <div className="profile-entry-icon"><Award size={18}/></div>
+                  <div className="profile-entry-copy"><strong>{skill.name}</strong><span>{skill.category}</span>{skill.evidence && <p>{skill.evidence}</p>}</div>
+                  <button className="entry-remove" type="button" aria-label={`Remove ${skill.name}`} onClick={() => setSkills((items) => items.filter((item) => item.id !== skill.id))}><Trash2 size={16}/></button>
+                </article>
+              ))}
+            </EntryList>
+            <SectionSave status={skillDraft.status} onSave={skillDraft.save}/>
+          </>}
+          {tab === 'Preferences' && <div className="preferences-content">
+            <section className="preference-section">
+              <div className="profile-entry-heading"><h2>Target roles</h2><span className="badge">Multiple</span></div>
+              <p className="section-description">Add each role you would consider. These stay as local drafts until profile saving is connected.</p>
+              <div className="inline-add">
+                <label className="sr-only" htmlFor="target-role-input">Target role</label>
+                <input
+                  id="target-role-input"
+                  value={roleInput}
+                  onChange={(event) => setRoleInput(event.target.value)}
+                  onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addTargetRole() } }}
+                  placeholder="e.g. .NET Developer"
+                />
+                <button className="secondary-button" onClick={addTargetRole} type="button" disabled={!roleInput.trim()}><Plus size={16}/>Add role</button>
+              </div>
+              {preferences.targetRoles.length > 0 ? <ul className="draft-chip-list" aria-label="Added target roles">
+                {preferences.targetRoles.map((role) => <li className="draft-chip" key={role}><span>{role}</span><button type="button" aria-label={`Remove ${role}`} onClick={() => setPreferences((current) => ({ ...current, targetRoles: current.targetRoles.filter((item) => item !== role) }))}>×</button></li>)}
+              </ul> : <p className="profile-entry-empty">No target roles added yet.</p>}
+            </section>
+
+            <section className="preference-section">
+              <div className="profile-entry-heading"><h2>Salary range</h2></div>
+              <div className="form-grid">
+                <div className="field"><label htmlFor="salary-min">Minimum salary</label><input id="salary-min" type="number" min="0" value={preferences.salaryMin} onChange={(event) => setPreferences((current) => ({ ...current, salaryMin: event.target.value }))} placeholder="Minimum"/></div>
+                <div className="field"><label htmlFor="salary-max">Maximum salary</label><input id="salary-max" type="number" min="0" value={preferences.salaryMax} onChange={(event) => setPreferences((current) => ({ ...current, salaryMax: event.target.value }))} placeholder="Maximum"/></div>
+                <div className="field"><label htmlFor="salary-currency">Currency</label><select id="salary-currency" value={preferences.salaryCurrency} onChange={(event) => setPreferences((current) => ({ ...current, salaryCurrency: event.target.value }))}><option>INR</option><option>USD</option><option>EUR</option><option>GBP</option><option>CAD</option><option>AUD</option></select></div>
+                <div className="field"><label htmlFor="salary-period">Pay period</label><select id="salary-period" value={preferences.salaryPeriod} onChange={(event) => setPreferences((current) => ({ ...current, salaryPeriod: event.target.value }))}><option>Yearly</option><option>Monthly</option><option>Hourly</option></select></div>
+              </div>
+              {salaryRangeError && <p className="field-error" role="alert">{salaryRangeError}</p>}
+            </section>
+
+            <section className="preference-section">
+              <div className="profile-entry-heading"><h2>Work mode</h2></div>
+              <p className="section-description">Choose any modes that work for you, or select Flexible / Any.</p>
+              <div className="work-mode-options">
+                {['Flexible / Any', 'Remote', 'Hybrid', 'On-site'].map((mode) => (
+                  <label className={`work-mode-option ${preferences.workModes.includes(mode) ? 'selected' : ''}`} key={mode}>
+                    <input type="checkbox" checked={preferences.workModes.includes(mode)} onChange={() => toggleWorkMode(mode)}/>
+                    <span>{mode}</span>
+                  </label>
+                ))}
+              </div>
+            </section>
+            <SectionSave status={preferencesDraft.status} onSave={preferencesDraft.save} disabled={Boolean(salaryRangeError)}/>
+          </div>}
+          {tab === 'Relocation' && <div className="form-grid">
+            <div className="field"><label htmlFor="current-country">Current country</label><input id="current-country" value={relocation.currentCountry} onChange={(event) => setRelocation((current) => ({ ...current, currentCountry: event.target.value }))}/></div>
+            <div className="field"><label htmlFor="relocate">Willing to relocate</label><select id="relocate" value={relocation.willingness} onChange={(event) => setRelocation((current) => ({ ...current, willingness: event.target.value }))}><option>Not specified</option><option>Yes</option><option>No</option></select></div>
+            <div className="field full"><label htmlFor="authorization">Work authorization</label><textarea id="authorization" value={relocation.authorization} onChange={(event) => setRelocation((current) => ({ ...current, authorization: event.target.value }))} placeholder="List countries and authorization status only if you confirm them"/></div>
+            <section className="field full preferred-locations">
+              <div className="profile-entry-heading"><h2>Preferred countries and cities</h2><span className="badge">Multiple</span></div>
+              <p className="section-description">Add countries you are open to. Choose a suggested city or enter a custom city.</p>
+              <div className="inline-add">
+                <label className="sr-only" htmlFor="preferred-country">Preferred country</label>
+                <input id="preferred-country" list="country-suggestions" value={countryInput} onChange={(event) => setCountryInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addPreferredCountry() } }} placeholder="Search or type a country"/>
+                <datalist id="country-suggestions">{COUNTRY_SUGGESTIONS.map((country) => <option key={country} value={country}/>)}</datalist>
+                <button className="secondary-button" onClick={addPreferredCountry} type="button" disabled={!countryInput.trim()}><Plus size={16}/>Add country</button>
+              </div>
+              {preferredLocations.length === 0 && <p className="profile-entry-empty">No preferred countries added yet.</p>}
+              <div className="preferred-location-list">
+                {preferredLocations.map((location) => {
+                  const cities = POPULAR_CITIES[location.country.toLowerCase()] ?? []
+                  return (
+                    <article className="preferred-location-card" key={location.id}>
+                      <div className="preferred-location-heading"><strong>{location.country}</strong><button className="entry-remove" type="button" aria-label={`Remove ${location.country}`} onClick={() => setRelocation((current) => ({ ...current, preferredLocations: current.preferredLocations.filter((item) => item.id !== location.id) }))}><Trash2 size={16}/></button></div>
+                      <div className="inline-add city-add-row">
+                        <label className="sr-only" htmlFor={`suggested-city-${location.id}`}>Suggested city in {location.country}</label>
+                        <select id={`suggested-city-${location.id}`} value={citySelections[location.id] ?? ''} onChange={(event) => setCitySelections((items) => ({ ...items, [location.id]: event.target.value }))} disabled={cities.length === 0}>
+                          <option value="">{cities.length ? 'Choose a popular city' : 'No city suggestions for this country'}</option>
+                          {cities.filter((city) => !location.cities.includes(city)).map((city) => <option key={city} value={city}>{city}</option>)}
+                        </select>
+                        <button className="secondary-button" type="button" disabled={!citySelections[location.id]} onClick={() => {
+                          const city = citySelections[location.id]
+                          if (city) addCity(location.id, city)
+                          setCitySelections((items) => ({ ...items, [location.id]: '' }))
+                        }}>Add city</button>
+                      </div>
+                      <div className="inline-add city-add-row">
+                        <label className="sr-only" htmlFor={`custom-city-${location.id}`}>Custom city in {location.country}</label>
+                        <input id={`custom-city-${location.id}`} value={customCityInputs[location.id] ?? ''} onChange={(event) => setCustomCityInputs((items) => ({ ...items, [location.id]: event.target.value }))} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); const city = customCityInputs[location.id] ?? ''; addCity(location.id, city); setCustomCityInputs((items) => ({ ...items, [location.id]: '' })) } }} placeholder="Add a custom city"/>
+                        <button className="secondary-button" type="button" disabled={!(customCityInputs[location.id] ?? '').trim()} onClick={() => {
+                          addCity(location.id, customCityInputs[location.id] ?? '')
+                          setCustomCityInputs((items) => ({ ...items, [location.id]: '' }))
+                        }}><Plus size={16}/>Add custom city</button>
+                      </div>
+                      {location.cities.length > 0 && <ul className="draft-chip-list" aria-label={`Cities in ${location.country}`}>
+                        {location.cities.map((city) => <li className="draft-chip" key={city}><span>{city}</span><button type="button" aria-label={`Remove ${city}`} onClick={() => setRelocation((current) => ({ ...current, preferredLocations: current.preferredLocations.map((item) => item.id === location.id ? { ...item, cities: item.cities.filter((existing) => existing !== city) } : item) }))}>×</button></li>)}
+                      </ul>}
+                    </article>
+                  )
+                })}
+              </div>
+            </section>
+            <SectionSave status={relocationDraft.status} onSave={relocationDraft.save}/>
+          </div>}
         </div>
       </div>
+    </div>
+  )
+}
+
+function EntryList({ title, empty, children }: { title: string; empty: string; children: React.ReactNode }) {
+  const hasEntries = Array.isArray(children) ? children.length > 0 : Boolean(children)
+  return (
+    <section className="profile-entry-section">
+      <div className="profile-entry-heading"><h2>{title}</h2><span className="badge">Local drafts</span></div>
+      {hasEntries ? <div className="profile-entry-list">{children}</div> : <p className="profile-entry-empty">{empty}</p>}
+    </section>
+  )
+}
+
+function SectionSave({
+  status,
+  onSave,
+  disabled = false,
+  submit = false,
+}: {
+  status: string
+  onSave: () => void
+  disabled?: boolean
+  submit?: boolean
+}) {
+  return (
+    <div className="draft-save-row">
+      <span role="status">{status}</span>
+      <button className="primary-button" type={submit ? 'submit' : 'button'} onClick={submit ? undefined : onSave} disabled={disabled}>
+        <Save size={16}/>Save section
+      </button>
     </div>
   )
 }
