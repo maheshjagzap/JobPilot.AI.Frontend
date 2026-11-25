@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { BriefcaseBusiness, Link2, LogOut, Mail, Monitor, Moon, Plus, Sun } from 'lucide-react'
+import { logout } from '../api/auth'
 
 const providers = [
   { name: 'Naukri', detail: 'Job search and application activity', icon: BriefcaseBusiness },
@@ -126,7 +127,7 @@ export default function Settings() {
 
         <div className="card">
           <div className="card-header"><h2>Security</h2></div>
-          <div className="card-body"><button className="danger-button" onClick={() => { sessionStorage.removeItem('jobpilot-auth'); window.location.assign('/login') }}><LogOut size={17}/>Log out</button></div>
+          <div className="card-body"><button className="danger-button" onClick={async () => { try { await logout() } catch { sessionStorage.removeItem('jobpilot-auth') } window.location.assign('/login') }}><LogOut size={17}/> Log out</button></div>
         </div>
       </div>
     </div>

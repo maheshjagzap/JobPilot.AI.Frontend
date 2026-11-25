@@ -13,6 +13,7 @@ import {
   WandSparkles,
   X,
 } from 'lucide-react'
+import { readStoredAuth } from './api/auth'
 
 const Login = lazy(() => import('./pages/Login'))
 const AgentWorkspace = lazy(() => import('./pages/AgentWorkspace'))
@@ -140,7 +141,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
 function RouteGuard({ children }: { children: React.ReactNode }) {
   const location = useLocation()
-  if (!isDemoMode) return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  if (!isDemoMode && !readStoredAuth()) return <Navigate to="/login" replace state={{ from: location.pathname }} />
   return <AppShell key={location.key}>{children}</AppShell>
 }
 
