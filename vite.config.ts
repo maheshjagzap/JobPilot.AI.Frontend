@@ -11,6 +11,12 @@ export default defineConfig({
         target: 'https://localhost:7081',
         changeOrigin: true,
         secure: false,
+        configure(proxy) {
+          proxy.on('proxyReq', (proxyRequest) => {
+            proxyRequest.setHeader('Origin', 'https://localhost:7081')
+            proxyRequest.setHeader('Referer', 'https://localhost:7081/swagger/index.html')
+          })
+        },
       },
     },
   },

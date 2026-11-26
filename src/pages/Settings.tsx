@@ -127,7 +127,7 @@ export default function Settings() {
 
         <div className="card">
           <div className="card-header"><h2>Security</h2></div>
-          <div className="card-body"><button className="danger-button" onClick={async () => { try { await logout() } catch { sessionStorage.removeItem('jobpilot-auth') } window.location.assign('/login') }}><LogOut size={17}/> Log out</button></div>
+          <div className="card-body"><button className="danger-button" onClick={async () => { try { await logout() } catch { /* logout helper clears memory in all cases */ } window.location.assign('/login') }}><LogOut size={17}/> Log out</button></div>
         </div>
       </div>
     </div>

@@ -21,29 +21,67 @@ export type SetupOwnerRequest = {
 
 const configuredBaseUrl = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 const API_BASE_URL = import.meta.env.DEV ? '' : (configuredBaseUrl || 'https://localhost:7081')
-const AUTH_STORAGE_KEY = 'jobpilot-auth'
+
+let inMemoryAuth: AuthenticationResponse | null = null
+let refreshPromise: Promise<AuthenticationResponse> | null = null
 
 async function readError(response: Response): Promise<string> {
+  if (response.status === 502) {
+    return 'Backend server is not connected. Please start the API server and try again.'
+  }
+  if (response.status === 503) {
+    return 'Backend server is unavailable. Please try again shortly.'
+  }
+  if (response.status === 504) {
+    return 'The backend server took too long to respond. Please try again.'
+  }
+
   try {
     const body = await response.json() as { title?: string; detail?: string; message?: string }
-    return body.detail || body.title || body.message || `Request failed (${response.status})`
+    return body.detail || body.title || body.message || 'The request could not be completed.'
   } catch {
-    return `Request failed (${response.status})`
+    return 'The request could not be completed. Please try again.'
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}, allowRefresh = true): Promise<T> {
   const auth = readStoredAuth()
   const headers = new Headers(options.headers)
   headers.set('Accept', 'application/json')
   if (options.body) headers.set('Content-Type', 'application/json')
   if (auth?.accessToken) headers.set('Authorization', `Bearer ${auth.accessToken}`)
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers,
-    credentials: 'include',
-  })
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers,
+      credentials: 'include',
+    })
+  } catch {
+    throw new Error('Backend server is not connected. Please start the API server and try again.')
+  }
+
+  if (response.status === 401 && allowRefresh && path !== '/api/v1/auth/login' && path !== '/api/v1/auth/setup') {
+    try {
+      if (!refreshPromise) {
+        refreshPromise = request<AuthenticationResponse>('/api/v1/auth/refresh', { method: 'POST' }, false)
+          .then((auth) => {
+            storeAuth(auth)
+            return auth
+          })
+          .finally(() => { refreshPromise = null })
+      }
+      await refreshPromise
+      return request<T>(path, options, false)
+    } catch {
+      clearStoredAuth()
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.assign('/login')
+      }
+      throw new Error('Your session has expired. Please sign in again.')
+    }
+  }
 
   if (!response.ok) throw new Error(await readError(response))
   if (response.status === 204) return undefined as T
@@ -52,20 +90,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export function readStoredAuth(): AuthenticationResponse | null {
-  try {
-    const value = sessionStorage.getItem(AUTH_STORAGE_KEY)
-    return value ? JSON.parse(value) as AuthenticationResponse : null
-  } catch {
-    return null
-  }
+  return inMemoryAuth
 }
 
 export function storeAuth(auth: AuthenticationResponse) {
-  sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(auth))
+  inMemoryAuth = auth
 }
 
 export function clearStoredAuth() {
-  sessionStorage.removeItem(AUTH_STORAGE_KEY)
+  inMemoryAuth = null
 }
 
 export function getSetupStatus() {
@@ -87,7 +120,7 @@ export function login(email: string, password: string) {
 }
 
 export function refreshAuth() {
-  return request<AuthenticationResponse>('/api/v1/auth/refresh', { method: 'POST' })
+  return request<AuthenticationResponse>('/api/v1/auth/refresh', { method: 'POST' }, false)
 }
 
 export function getCurrentOwner() {
@@ -99,5 +132,19 @@ export async function logout() {
     await request<void>('/api/v1/auth/logout', { method: 'POST' })
   } finally {
     clearStoredAuth()
+  }
+}
+
+export async function restoreSession(): Promise<AuthenticationResponse | null> {
+  try {
+    const auth = await refreshAuth()
+    storeAuth(auth)
+    const owner = await getCurrentOwner()
+    const restored = { ...auth, owner }
+    storeAuth(restored)
+    return restored
+  } catch {
+    clearStoredAuth()
+    return null
   }
 }
