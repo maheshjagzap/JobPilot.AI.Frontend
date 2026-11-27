@@ -1,11 +1,17 @@
-import { useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
+import { startTransition, useCallback, useEffect, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
 import { Award, BriefcaseBusiness, Code2, Plus, Save, Trash2, UserRound } from 'lucide-react'
 import { z } from 'zod'
+import { readStoredAuth } from '../api/auth'
+import { getProfile, updateProfile, type CandidateProfile, type UpdateCandidateProfileRequest } from '../api/features'
+import { useApiQuery } from '../api/useApiQuery'
+import JobSearchPreferences from './JobSearchPreferences'
 
 type Experience = {
   id: number
+  apiId?: string
   title: string
   employer: string
+  employmentType?: string | null
   location: string
   startDate: string
   endDate: string
@@ -15,26 +21,35 @@ type Experience = {
 
 type Education = {
   id: number
+  apiId?: string
   institution: string
   degree: string
   field: string
   startYear: string
   endYear: string
   grade: string
+  educationLevel?: string | null
+  gradeType?: string | null
+  description?: string | null
+  apiStartDate?: string | null
+  apiEndDate?: string | null
 }
 
 type Certification = {
   id: number
+  apiId?: string
   name: string
   issuer: string
   issueDate: string
   expiryDate: string
+  doesNotExpire?: boolean
   credentialId: string
   credentialUrl: string
 }
 
 type Project = {
   id: number
+  apiId?: string
   name: string
   role: string
   startDate: string
@@ -42,6 +57,8 @@ type Project = {
   technologies: string[]
   description: string
   projectUrl: string
+  repositoryUrl?: string | null
+  isFeatured?: boolean
 }
 
 type PreferredLocation = {
@@ -62,9 +79,13 @@ type PersonalDetails = {
 
 type SkillDetails = {
   id: number
+  apiId?: string
   name: string
   category: string
   evidence: string
+  proficiencyLevel?: string | null
+  experienceMonths?: number | null
+  isPrimary?: boolean
 }
 
 type Preferences = {
@@ -84,26 +105,37 @@ type Relocation = {
 }
 
 const experienceSchema = z.array(z.object({
-  id: z.number(), title: z.string(), employer: z.string(), location: z.string(),
+  id: z.number(), apiId: z.string().optional(), title: z.string(), employer: z.string(),
+  employmentType: z.string().nullable().optional(), location: z.string(),
   startDate: z.string(), endDate: z.string(), current: z.boolean(), description: z.string(),
 }))
 const educationSchema = z.array(z.object({
-  id: z.number(), institution: z.string(), degree: z.string(), field: z.string(),
-  startYear: z.string(), endYear: z.string(), grade: z.string(),
+  id: z.number(), apiId: z.string().optional(), institution: z.string(), degree: z.string(),
+  field: z.string(), startYear: z.string(), endYear: z.string(), grade: z.string(),
+  educationLevel: z.string().nullable().optional(), gradeType: z.string().nullable().optional(),
+  description: z.string().nullable().optional(), apiStartDate: z.string().nullable().optional(),
+  apiEndDate: z.string().nullable().optional(),
 }))
 const certificationSchema = z.array(z.object({
-  id: z.number(), name: z.string(), issuer: z.string(), issueDate: z.string(),
-  expiryDate: z.string(), credentialId: z.string(), credentialUrl: z.string(),
+  id: z.number(), apiId: z.string().optional(), name: z.string(), issuer: z.string(),
+  issueDate: z.string(), expiryDate: z.string(), doesNotExpire: z.boolean().optional(),
+  credentialId: z.string(), credentialUrl: z.string(),
 }))
 const projectSchema = z.array(z.object({
-  id: z.number(), name: z.string(), role: z.string(), startDate: z.string(),
-  endDate: z.string(), technologies: z.array(z.string()), description: z.string(), projectUrl: z.string(),
+  id: z.number(), apiId: z.string().optional(), name: z.string(), role: z.string(),
+  startDate: z.string(), endDate: z.string(), technologies: z.array(z.string()),
+  description: z.string(), projectUrl: z.string(), repositoryUrl: z.string().nullable().optional(),
+  isFeatured: z.boolean().optional(),
 }))
 const personalSchema = z.object({
   fullName: z.string(), preferredName: z.string(), email: z.string(), phone: z.string(),
   city: z.string(), country: z.string(), summary: z.string(),
 })
-const skillSchema = z.array(z.object({ id: z.number(), name: z.string(), category: z.string(), evidence: z.string() }))
+const skillSchema = z.array(z.object({
+  id: z.number(), apiId: z.string().optional(), name: z.string(), category: z.string(),
+  evidence: z.string(), proficiencyLevel: z.string().nullable().optional(),
+  experienceMonths: z.number().nullable().optional(), isPrimary: z.boolean().optional(),
+}))
 const preferencesSchema = z.object({
   targetRoles: z.array(z.string()), salaryMin: z.string(), salaryMax: z.string(),
   salaryCurrency: z.string(), salaryPeriod: z.string(), workModes: z.array(z.string()),
@@ -112,6 +144,38 @@ const relocationSchema = z.object({
   currentCountry: z.string(), willingness: z.string(), authorization: z.string(),
   preferredLocations: z.array(z.object({ id: z.number(), country: z.string(), cities: z.array(z.string()) })),
 })
+
+function emptyCandidateProfile(): CandidateProfile {
+  const owner = readStoredAuth()?.owner
+  return {
+    profileId: '',
+    eTag: '',
+    personal: {
+      preferredName: null,
+      firstName: owner?.firstName ?? '',
+      lastName: owner?.lastName ?? '',
+      email: owner?.email ?? '',
+      phoneNumber: null,
+      professionalTitle: null,
+      careerSummary: null,
+      currentLocation: null,
+      currentCountryCode: null,
+      linkedInUrl: null,
+      gitHubUrl: null,
+      portfolioUrl: null,
+      isOpenToWork: true,
+      noticePeriodDays: null,
+      willingToRelocate: null,
+      workAuthorization: null,
+    },
+    experience: [],
+    education: [],
+    certifications: [],
+    skills: [],
+    projects: [],
+    updatedAt: '',
+  }
+}
 
 const COUNTRY_SUGGESTIONS = [
   'Australia',
@@ -143,13 +207,186 @@ function value(formData: FormData, key: string) {
   return String(formData.get(key) ?? '').trim()
 }
 
-function LocalEntryNotice() {
+function ProfileNotice({ authenticated, error }: { authenticated: boolean; error: string }) {
   return (
-    <div className="notice">
+    <div className="notice" role={error ? 'alert' : undefined}>
       <UserRound size={18}/>
-      <span>Fields marked * are required. Save each section independently to this browser. Drafts are not synced to an account because the profile API is not connected.</span>
+      <span>{error || (authenticated
+        ? 'Personal, experience, projects, education, certifications, skills, and job-search preferences sync to your account. Relocation remains a browser-only draft. Name, email, and phone are read-only.'
+        : 'Sign in to sync supported profile sections; without an account session, drafts are saved only in this browser.')}</span>
     </div>
   )
+}
+
+function parseRemoteRows<T>(value: unknown, schema: z.ZodType<T[]>) {
+  if (!Array.isArray(value)) return schema.parse([])
+  const rows = value.map((item, index) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) return item
+    const row = item as Record<string, unknown>
+    return { ...row, id: typeof row.id === 'number' ? row.id : index + 1 }
+  })
+  return schema.parse(rows)
+}
+
+function dateForYear(year: string, originalDate?: string | null) {
+  if (!year) return null
+  if (originalDate?.slice(0, 4) === year) return originalDate
+  return /^\d{4}$/.test(year) ? `${year}-01-01` : null
+}
+
+function mapCandidateProfile(profile: CandidateProfile) {
+  const personal = personalSchema.parse({
+    fullName: [profile.personal.firstName, profile.personal.lastName].filter(Boolean).join(' '),
+    preferredName: profile.personal.preferredName ?? '',
+    email: profile.personal.email,
+    phone: profile.personal.phoneNumber ?? '',
+    city: profile.personal.currentLocation ?? '',
+    country: profile.personal.currentCountryCode ?? '',
+    summary: profile.personal.careerSummary ?? '',
+  })
+  const experiences = parseRemoteRows((profile.experience ?? []).map((entry) => ({
+    apiId: entry.experienceId,
+    title: entry.jobTitle,
+    employer: entry.companyName,
+    employmentType: entry.employmentType,
+    location: entry.location ?? '',
+    startDate: entry.startDate,
+    endDate: entry.endDate ?? '',
+    current: entry.isCurrentlyWorking,
+    description: entry.description ?? '',
+  })), experienceSchema)
+  const educations = parseRemoteRows((profile.education ?? []).map((entry) => ({
+    apiId: entry.educationId,
+    institution: entry.institutionName,
+    degree: entry.degree,
+    field: entry.specialization ?? '',
+    startYear: entry.startDate?.slice(0, 4) ?? '',
+    endYear: entry.endDate?.slice(0, 4) ?? '',
+    grade: entry.gradeValue ?? '',
+    educationLevel: entry.educationLevel,
+    gradeType: entry.gradeType,
+    description: entry.description,
+    apiStartDate: entry.startDate,
+    apiEndDate: entry.endDate,
+  })), educationSchema)
+  const certifications = parseRemoteRows((profile.certifications ?? []).map((entry) => ({
+    apiId: entry.certificationId,
+    name: entry.certificationName,
+    issuer: entry.issuingOrganization,
+    issueDate: entry.issueDate ?? '',
+    expiryDate: entry.expiryDate ?? '',
+    doesNotExpire: entry.doesNotExpire,
+    credentialId: entry.credentialId ?? '',
+    credentialUrl: entry.credentialUrl ?? '',
+  })), certificationSchema)
+  const skills = parseRemoteRows((profile.skills ?? []).map((entry) => ({
+    apiId: entry.userSkillId,
+    name: entry.skillName,
+    category: entry.skillCategory ?? '',
+    evidence: entry.evidence ?? '',
+    proficiencyLevel: entry.proficiencyLevel,
+    experienceMonths: entry.experienceMonths,
+    isPrimary: entry.isPrimary,
+  })), skillSchema)
+  const projects = parseRemoteRows((profile.projects ?? []).map((entry) => ({
+    apiId: entry.projectId,
+    name: entry.projectName,
+    role: entry.role ?? '',
+    startDate: entry.startDate ?? '',
+    endDate: entry.endDate ?? '',
+    technologies: entry.technologies ?? [],
+    description: entry.description ?? '',
+    projectUrl: entry.projectUrl ?? '',
+    repositoryUrl: entry.repositoryUrl,
+    isFeatured: entry.isFeatured,
+  })), projectSchema)
+
+  return { personal, experiences, educations, certifications, skills, projects }
+}
+
+function buildProfileUpdate(
+  profile: CandidateProfile,
+  personal: PersonalDetails,
+  experiences: Experience[],
+  educations: Education[],
+  certifications: Certification[],
+  skills: SkillDetails[],
+  projects: Project[],
+): UpdateCandidateProfileRequest {
+  return {
+    personal: {
+      preferredName: personal.preferredName || null,
+      professionalTitle: profile.personal.professionalTitle,
+      careerSummary: personal.summary || null,
+      currentLocation: personal.city || null,
+      currentCountryCode: personal.country || null,
+      linkedInUrl: profile.personal.linkedInUrl,
+      gitHubUrl: profile.personal.gitHubUrl,
+      portfolioUrl: profile.personal.portfolioUrl,
+      isOpenToWork: profile.personal.isOpenToWork,
+      noticePeriodDays: profile.personal.noticePeriodDays,
+      willingToRelocate: profile.personal.willingToRelocate,
+      workAuthorization: profile.personal.workAuthorization,
+    },
+    experience: experiences.map((entry, displayOrder) => ({
+      experienceId: entry.apiId ?? null,
+      companyName: entry.employer,
+      jobTitle: entry.title,
+      employmentType: entry.employmentType ?? null,
+      location: entry.location || null,
+      startDate: entry.startDate,
+      endDate: entry.current ? null : entry.endDate || null,
+      isCurrentlyWorking: entry.current,
+      description: entry.description || null,
+      displayOrder,
+    })),
+    education: educations.map((entry, displayOrder) => ({
+      educationId: entry.apiId ?? null,
+      institutionName: entry.institution,
+      degree: entry.degree,
+      specialization: entry.field || null,
+      educationLevel: entry.educationLevel ?? null,
+      startDate: dateForYear(entry.startYear, entry.apiStartDate),
+      endDate: dateForYear(entry.endYear, entry.apiEndDate),
+      gradeType: entry.gradeType ?? null,
+      gradeValue: entry.grade || null,
+      description: entry.description ?? null,
+      displayOrder,
+    })),
+    certifications: certifications.map((entry, displayOrder) => ({
+      certificationId: entry.apiId ?? null,
+      certificationName: entry.name,
+      issuingOrganization: entry.issuer,
+      issueDate: entry.issueDate || null,
+      expiryDate: entry.expiryDate || null,
+      doesNotExpire: entry.expiryDate ? false : entry.doesNotExpire ?? false,
+      credentialId: entry.credentialId || null,
+      credentialUrl: entry.credentialUrl || null,
+      displayOrder,
+    })),
+    skills: skills.map((entry) => ({
+      userSkillId: entry.apiId ?? null,
+      skillName: entry.name,
+      skillCategory: entry.category || null,
+      proficiencyLevel: entry.proficiencyLevel ?? null,
+      experienceMonths: entry.experienceMonths ?? null,
+      evidence: entry.evidence || null,
+      isPrimary: entry.isPrimary ?? false,
+    })),
+    projects: projects.map((entry, displayOrder) => ({
+      projectId: entry.apiId ?? null,
+      projectName: entry.name,
+      role: entry.role || null,
+      description: entry.description || null,
+      projectUrl: entry.projectUrl || null,
+      repositoryUrl: entry.repositoryUrl ?? null,
+      startDate: entry.startDate || null,
+      endDate: entry.endDate || null,
+      isFeatured: entry.isFeatured ?? false,
+      displayOrder,
+      technologies: entry.technologies,
+    })),
+  }
 }
 
 function useBrowserDraft<T>(key: string, initialValue: T, schema: z.ZodType<T>) {
@@ -175,25 +412,30 @@ function useBrowserDraft<T>(key: string, initialValue: T, schema: z.ZodType<T>) 
   const [value, setValue] = useState<T>(initial.value)
   const [status, setStatus] = useState(initial.status)
 
-  const updateValue: Dispatch<SetStateAction<T>> = (nextValue) => {
+  const updateValue = useCallback<Dispatch<SetStateAction<T>>>((nextValue) => {
     setValue(nextValue)
     setStatus('Unsaved changes. Save this section to keep the draft.')
-  }
+  }, [])
 
-  function save() {
+  const save = useCallback(() => {
     try {
       localStorage.setItem(key, JSON.stringify(value))
       setStatus('Saved in this browser only. Not synced to an account.')
     } catch {
       setStatus('Could not save to browser storage. Your changes remain unsaved.')
     }
-  }
+  }, [key, value])
 
-  return { value, setValue: updateValue, status, save }
+  return { value, setValue: updateValue, status, setStatus, save }
 }
 
 export default function Profile() {
   const [tab, setTab] = useState('Personal')
+  const authenticated = Boolean(readStoredAuth())
+  const profileQuery = useApiQuery('candidate-profile', getProfile, authenticated)
+  const [profileETag, setProfileETag] = useState('')
+  const [remoteProfile, setRemoteProfile] = useState<CandidateProfile>()
+  const [profileLoadError, setProfileLoadError] = useState('')
   const experienceDraft = useBrowserDraft<Experience[]>('jobpilot-profile-experience', [], experienceSchema)
   const educationDraft = useBrowserDraft<Education[]>('jobpilot-profile-education', [], educationSchema)
   const certificationDraft = useBrowserDraft<Certification[]>('jobpilot-profile-certifications', [], certificationSchema)
@@ -224,6 +466,13 @@ export default function Profile() {
   const setPreferences = preferencesDraft.setValue
   const relocation = relocationDraft.value
   const setRelocation = relocationDraft.setValue
+  const setPersonalStatus = personalDraft.setStatus
+  const setExperienceStatus = experienceDraft.setStatus
+  const setProjectStatus = projectDraft.setStatus
+  const setEducationStatus = educationDraft.setStatus
+  const setCertificationStatus = certificationDraft.setStatus
+  const setSkillStatus = skillDraft.setStatus
+  const setRelocationStatus = relocationDraft.setStatus
   const [roleInput, setRoleInput] = useState('')
   const [skillName, setSkillName] = useState('')
   const [skillCategory, setSkillCategory] = useState('Backend')
@@ -234,6 +483,110 @@ export default function Profile() {
   const [customCityInputs, setCustomCityInputs] = useState<Record<number, string>>({})
   const nextId = useRef(0)
   const tabs = ['Personal', 'Experience', 'Projects', 'Education', 'Certifications', 'Skills', 'Preferences', 'Relocation']
+
+  const applyRemoteProfile = useCallback((profile: CandidateProfile) => {
+    const mapped = mapCandidateProfile(profile)
+    startTransition(() => {
+      setRemoteProfile(profile)
+      setProfileETag(profile.eTag)
+      setPersonal(mapped.personal)
+      setExperiences(mapped.experiences)
+      setProjects(mapped.projects)
+      setEducations(mapped.educations)
+      setCertifications(mapped.certifications)
+      setSkills(mapped.skills)
+      setPersonalStatus('Loaded from your account.')
+      setExperienceStatus('Loaded from your account.')
+      setEducationStatus('Loaded from your account.')
+      setCertificationStatus('Loaded from your account.')
+      setSkillStatus('Loaded from your account.')
+      setProjectStatus('Loaded from your account.')
+      setRelocationStatus('The profile API does not include relocation; this remains a browser draft.')
+      setProfileLoadError('')
+    })
+  }, [
+    setPersonal,
+    setExperiences,
+    setProjects,
+    setEducations,
+    setCertifications,
+    setSkills,
+    setPersonalStatus,
+    setExperienceStatus,
+    setProjectStatus,
+    setEducationStatus,
+    setCertificationStatus,
+    setSkillStatus,
+    setRelocationStatus,
+  ])
+
+  useEffect(() => {
+    if (profileQuery.loading || profileQuery.error) return
+    if (profileQuery.data === null) {
+      applyRemoteProfile(emptyCandidateProfile())
+      return
+    }
+    if (!profileQuery.data) return
+    try {
+      applyRemoteProfile(profileQuery.data)
+    } catch (reason) {
+      startTransition(() => setProfileLoadError(reason instanceof Error ? reason.message : 'The profile response could not be loaded.'))
+    }
+  }, [profileQuery.data, profileQuery.error, profileQuery.loading, applyRemoteProfile])
+
+  async function saveSection(
+    draft: { setStatus: (status: string) => void; save: () => void },
+    syncWithAccount = true,
+  ) {
+    if (!authenticated || !syncWithAccount) {
+      draft.save()
+      if (authenticated && !syncWithAccount) {
+        draft.setStatus('Saved in this browser only. This section is not in the profile API.')
+      }
+      return
+    }
+    if (profileQuery.loading) {
+      draft.setStatus('Profile data is still loading. Wait before saving.')
+      return
+    }
+    if (profileQuery.error) {
+      draft.setStatus('Profile data could not be loaded. Reload before saving.')
+      return
+    }
+    if (!remoteProfile) {
+      draft.setStatus('Profile data is not loaded. Reload before saving.')
+      return
+    }
+    draft.setStatus('Saving to your account...')
+    try {
+      await updateProfile(
+        buildProfileUpdate(
+          remoteProfile,
+          personal,
+          experiences,
+          educations,
+          certifications,
+          skills,
+          projects,
+        ),
+        profileETag || undefined,
+      )
+    } catch (reason) {
+      draft.setStatus(reason instanceof Error ? reason.message : 'Could not save your profile.')
+      return
+    }
+
+    try {
+      const updatedProfile = await getProfile()
+      if (!updatedProfile) throw new Error('The saved profile could not be found.')
+      applyRemoteProfile(updatedProfile)
+      draft.setStatus('Saved to your account.')
+    } catch (reason) {
+      setProfileETag('')
+      setProfileLoadError('Your changes were sent, but the updated profile could not be reloaded. Reload before saving again.')
+      draft.setStatus(reason instanceof Error ? `Saved, but refresh failed: ${reason.message}` : 'Saved, but the updated profile could not be reloaded.')
+    }
+  }
 
   function createId() {
     nextId.current += 1
@@ -378,7 +731,8 @@ export default function Profile() {
       <div className="page-header">
         <div><h1>Candidate Profile</h1><p>Your verified source of truth</p></div>
       </div>
-      <LocalEntryNotice />
+      <ProfileNotice authenticated={authenticated} error={profileLoadError || profileQuery.error} />
+      {authenticated && profileQuery.loading && <div className="notice" role="status">Loading your profile...</div>}
       <div className="card">
         <div className="tabs" role="tablist" aria-label="Profile sections">
           {tabs.map((item) => (
@@ -393,15 +747,16 @@ export default function Profile() {
           ))}
         </div>
         <div className="card-body">
-          {tab === 'Personal' && <form className="form-grid" onSubmit={(event) => { event.preventDefault(); personalDraft.save() }}>
-            <div className="field"><label htmlFor="name">Full legal name *</label><input id="name" required value={personal.fullName} onChange={(event) => setPersonal((current) => ({ ...current, fullName: event.target.value }))} placeholder="Your full name"/></div>
+          {tab === 'Personal' && <form className="form-grid" onSubmit={(event) => { event.preventDefault(); void saveSection(personalDraft) }}>
+            {authenticated && <p className="section-description full">Name, email, and phone are read-only because the profile update API does not accept those fields.</p>}
+            <div className="field"><label htmlFor="name">Full legal name *</label><input id="name" required readOnly={authenticated} value={personal.fullName} onChange={(event) => setPersonal((current) => ({ ...current, fullName: event.target.value }))} placeholder="Your full name"/></div>
             <div className="field"><label htmlFor="preferred">Preferred name</label><input id="preferred" value={personal.preferredName} onChange={(event) => setPersonal((current) => ({ ...current, preferredName: event.target.value }))} placeholder="Optional"/></div>
-            <div className="field"><label htmlFor="email">Email *</label><input id="email" type="email" required value={personal.email} onChange={(event) => setPersonal((current) => ({ ...current, email: event.target.value }))} placeholder="you@example.com"/></div>
-            <div className="field"><label htmlFor="phone">Phone</label><input id="phone" value={personal.phone} onChange={(event) => setPersonal((current) => ({ ...current, phone: event.target.value }))} placeholder="+91..."/></div>
+            <div className="field"><label htmlFor="email">Email *</label><input id="email" type="email" required readOnly={authenticated} value={personal.email} onChange={(event) => setPersonal((current) => ({ ...current, email: event.target.value }))} placeholder="you@example.com"/></div>
+            <div className="field"><label htmlFor="phone">Phone</label><input id="phone" readOnly={authenticated} value={personal.phone} onChange={(event) => setPersonal((current) => ({ ...current, phone: event.target.value }))} placeholder="+91..."/></div>
             <div className="field"><label htmlFor="city">Current city</label><input id="city" value={personal.city} onChange={(event) => setPersonal((current) => ({ ...current, city: event.target.value }))} placeholder="City"/></div>
             <div className="field"><label htmlFor="country">Country</label><input id="country" value={personal.country} onChange={(event) => setPersonal((current) => ({ ...current, country: event.target.value }))} placeholder="Country"/></div>
             <div className="field full"><label htmlFor="summary">Professional summary</label><textarea id="summary" value={personal.summary} onChange={(event) => setPersonal((current) => ({ ...current, summary: event.target.value }))} placeholder="Summarize your experience without exaggeration"/></div>
-            <SectionSave status={personalDraft.status} onSave={personalDraft.save} submit/>
+            <SectionSave status={personalDraft.status} onSave={() => { void saveSection(personalDraft) }} submit/>
           </form>}
 
           {tab === 'Experience' && <>
@@ -415,7 +770,7 @@ export default function Profile() {
               <div className="field full"><label htmlFor="experience-description">Responsibilities and achievements</label><textarea id="experience-description" name="description" placeholder="Describe verified responsibilities and achievements"/></div>
               <div className="form-action full"><button className="secondary-button" type="submit"><Plus size={17}/>Add experience</button></div>
             </form>
-            <EntryList title="Experience added" empty="Your experience entries will appear here after you add them.">
+            <EntryList title="Experience added" empty="Your experience entries will appear here after you add them." sourceLabel={authenticated ? 'Account records' : 'Local drafts'}>
               {experiences.map((entry) => (
                 <article className="profile-entry" key={entry.id}>
                   <div className="profile-entry-icon"><BriefcaseBusiness size={18}/></div>
@@ -428,7 +783,7 @@ export default function Profile() {
                 </article>
               ))}
             </EntryList>
-            <SectionSave status={experienceDraft.status} onSave={experienceDraft.save}/>
+            <SectionSave status={experienceDraft.status} onSave={() => { void saveSection(experienceDraft) }}/>
           </>}
 
           {tab === 'Education' && <>
@@ -441,7 +796,7 @@ export default function Profile() {
               <div className="field"><label htmlFor="education-grade">Grade (optional)</label><input id="education-grade" name="grade" placeholder="Add only if you choose"/></div>
               <div className="form-action full"><button className="secondary-button" type="submit"><Plus size={17}/>Add education</button></div>
             </form>
-            <EntryList title="Education added" empty="Your education entries will appear here after you add them.">
+            <EntryList title="Education added" empty="Your education entries will appear here after you add them." sourceLabel={authenticated ? 'Account records' : 'Local drafts'}>
               {educations.map((entry) => (
                 <article className="profile-entry" key={entry.id}>
                   <div className="profile-entry-icon"><UserRound size={18}/></div>
@@ -454,7 +809,7 @@ export default function Profile() {
                 </article>
               ))}
             </EntryList>
-            <SectionSave status={educationDraft.status} onSave={educationDraft.save}/>
+            <SectionSave status={educationDraft.status} onSave={() => { void saveSection(educationDraft) }}/>
           </>}
 
           {tab === 'Projects' && <>
@@ -468,7 +823,7 @@ export default function Profile() {
               <div className="field full"><label htmlFor="project-url">Project or repository link</label><input id="project-url" name="projectUrl" type="url" placeholder="https://..."/></div>
               <div className="form-action full"><button className="secondary-button" type="submit"><Plus size={17}/>Add project</button></div>
             </form>
-            <EntryList title="Projects added" empty="Your projects will appear here after you add them.">
+            <EntryList title="Projects added" empty="Your projects will appear here after you add them." sourceLabel={authenticated ? 'Account records' : 'Local drafts'}>
               {projects.map((project) => (
                 <article className="profile-entry" key={project.id}>
                   <div className="profile-entry-icon"><Code2 size={18}/></div>
@@ -484,7 +839,7 @@ export default function Profile() {
                 </article>
               ))}
             </EntryList>
-            <SectionSave status={projectDraft.status} onSave={projectDraft.save}/>
+            <SectionSave status={projectDraft.status} onSave={() => { void saveSection(projectDraft) }}/>
           </>}
 
           {tab === 'Certifications' && <>
@@ -497,7 +852,7 @@ export default function Profile() {
               <div className="field"><label htmlFor="certification-url">Credential URL</label><input id="certification-url" name="credentialUrl" type="url" placeholder="https://..."/></div>
               <div className="form-action full"><button className="secondary-button" type="submit"><Plus size={17}/>Add certification</button></div>
             </form>
-            <EntryList title="Certifications added" empty="Your certifications will appear here after you add them.">
+            <EntryList title="Certifications added" empty="Your certifications will appear here after you add them." sourceLabel={authenticated ? 'Account records' : 'Local drafts'}>
               {certifications.map((entry) => (
                 <article className="profile-entry" key={entry.id}>
                   <div className="profile-entry-icon"><Award size={18}/></div>
@@ -511,7 +866,7 @@ export default function Profile() {
                 </article>
               ))}
             </EntryList>
-            <SectionSave status={certificationDraft.status} onSave={certificationDraft.save}/>
+            <SectionSave status={certificationDraft.status} onSave={() => { void saveSection(certificationDraft) }}/>
           </>}
 
           {tab === 'Skills' && <>
@@ -521,7 +876,7 @@ export default function Profile() {
               <div className="field full"><label htmlFor="skill-evidence">Supporting experience</label><textarea value={skillEvidence} onChange={(event) => setSkillEvidence(event.target.value)} id="skill-evidence" placeholder="Describe the evidence for this skill"/></div>
               <div className="form-action full"><button className="secondary-button" type="submit"><Plus size={17}/>Add skill</button></div>
             </form>
-            <EntryList title="Skills added" empty="Your skills will appear here after you add them.">
+            <EntryList title="Skills added" empty="Your skills will appear here after you add them." sourceLabel={authenticated ? 'Account records' : 'Local drafts'}>
               {skills.map((skill) => (
                 <article className="profile-entry" key={skill.id}>
                   <div className="profile-entry-icon"><Award size={18}/></div>
@@ -530,12 +885,12 @@ export default function Profile() {
                 </article>
               ))}
             </EntryList>
-            <SectionSave status={skillDraft.status} onSave={skillDraft.save}/>
+            <SectionSave status={skillDraft.status} onSave={() => { void saveSection(skillDraft) }}/>
           </>}
-          {tab === 'Preferences' && <div className="preferences-content">
+          {tab === 'Preferences' && (authenticated ? <JobSearchPreferences /> : <div className="preferences-content">
             <section className="preference-section">
               <div className="profile-entry-heading"><h2>Target roles</h2><span className="badge">Multiple</span></div>
-              <p className="section-description">Add each role you would consider. These stay as local drafts until profile saving is connected.</p>
+              <p className="section-description">Sign in to manage account-synced job-search preferences. These signed-out preferences stay in this browser.</p>
               <div className="inline-add">
                 <label className="sr-only" htmlFor="target-role-input">Target role</label>
                 <input
@@ -575,9 +930,10 @@ export default function Profile() {
                 ))}
               </div>
             </section>
-            <SectionSave status={preferencesDraft.status} onSave={preferencesDraft.save} disabled={Boolean(salaryRangeError)}/>
-          </div>}
+            <SectionSave status={preferencesDraft.status} onSave={() => { void saveSection(preferencesDraft, false) }} disabled={Boolean(salaryRangeError)}/>
+          </div>)}
           {tab === 'Relocation' && <div className="form-grid">
+            <p className="section-description full">The current profile API does not sync relocation details; these are saved in this browser only.</p>
             <div className="field"><label htmlFor="current-country">Current country</label><input id="current-country" value={relocation.currentCountry} onChange={(event) => setRelocation((current) => ({ ...current, currentCountry: event.target.value }))}/></div>
             <div className="field"><label htmlFor="relocate">Willing to relocate</label><select id="relocate" value={relocation.willingness} onChange={(event) => setRelocation((current) => ({ ...current, willingness: event.target.value }))}><option>Not specified</option><option>Yes</option><option>No</option></select></div>
             <div className="field full"><label htmlFor="authorization">Work authorization</label><textarea id="authorization" value={relocation.authorization} onChange={(event) => setRelocation((current) => ({ ...current, authorization: event.target.value }))} placeholder="List countries and authorization status only if you confirm them"/></div>
@@ -625,7 +981,7 @@ export default function Profile() {
                 })}
               </div>
             </section>
-            <SectionSave status={relocationDraft.status} onSave={relocationDraft.save}/>
+            <SectionSave status={relocationDraft.status} onSave={() => { void saveSection(relocationDraft, false) }}/>
           </div>}
         </div>
       </div>
@@ -633,11 +989,11 @@ export default function Profile() {
   )
 }
 
-function EntryList({ title, empty, children }: { title: string; empty: string; children: React.ReactNode }) {
+function EntryList({ title, empty, children, sourceLabel }: { title: string; empty: string; children: React.ReactNode; sourceLabel: string }) {
   const hasEntries = Array.isArray(children) ? children.length > 0 : Boolean(children)
   return (
     <section className="profile-entry-section">
-      <div className="profile-entry-heading"><h2>{title}</h2><span className="badge">Local drafts</span></div>
+      <div className="profile-entry-heading"><h2>{title}</h2><span className="badge">{sourceLabel}</span></div>
       {hasEntries ? <div className="profile-entry-list">{children}</div> : <p className="profile-entry-empty">{empty}</p>}
     </section>
   )

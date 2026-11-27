@@ -159,9 +159,9 @@ Accept: application/json
 
 No request body. The browser sends the session cookie according to the application's cookie policy.
 
-**Success — `204 No Content`**
+**Success — `200 OK`**
 
-No response body. The server invalidates the session and expires the authentication cookie. The client can then clear its own legacy auth state and navigate to `/login`.
+The live OpenAPI currently documents `200 OK` and does not define a response body. The proposed behavior is for the server to invalidate the session and expire the authentication cookie. The client should then clear its in-memory auth state and navigate to `/login`.
 
 **Errors:** `401 Unauthorized` can mean the session was already expired; the client should still clear stale local auth state and return to the sign-in page. Other failures should be surfaced rather than displayed as a successful server logout.
 
@@ -173,6 +173,6 @@ No response body. The server invalidates the session and expires the authenticat
 |---|---|---|
 | Read/change theme | `jobpilot-theme` in browser `localStorage` | APIs 1–2 |
 | Choose/save providers | `jobpilot-connection-request` in browser `localStorage`; no account is linked | APIs 3–4 |
-| Log out | Removes `jobpilot-auth` from `sessionStorage` and navigates to `/login`; no server call | API 5 |
+| Log out | Calls the backend logout route, clears in-memory auth state, and navigates to `/login` | API 5 |
 
 Related guides: [Agent APIs](./AGENT_API.md), [Candidate data APIs](./CANDIDATE_DATA_API.md), [Job search APIs](./JOB_SEARCH_API.md), [Applications and automation APIs](./APPLICATIONS_AUTOMATION_API.md).

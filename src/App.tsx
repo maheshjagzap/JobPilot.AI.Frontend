@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-
 import {
   BriefcaseBusiness,
   ChevronRight,
+  Activity,
   FileText,
   Menu,
   Moon,
@@ -14,9 +15,12 @@ import {
   X,
 } from 'lucide-react'
 import { readStoredAuth, restoreSession } from './api/auth'
+import { getAgentCapabilities } from './api/features'
+import { useApiQuery } from './api/useApiQuery'
 
 const Login = lazy(() => import('./pages/Login'))
 const AgentWorkspace = lazy(() => import('./pages/AgentWorkspace'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Profile = lazy(() => import('./pages/Profile'))
 const Resumes = lazy(() => import('./pages/Resumes'))
 const Jobs = lazy(() => import('./pages/Jobs'))
@@ -41,17 +45,38 @@ function Logo() {
 function AppShell({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
+  const capabilitiesQuery = useApiQuery('agent-capabilities', getAgentCapabilities, !isDemoMode && Boolean(readStoredAuth()))
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
-    localStorage.getItem('jobpilot-theme') === 'dark' ? 'dark' : 'light',
-  )
+  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>(() => {
+    const savedTheme = localStorage.getItem('jobpilot-theme')
+    return savedTheme === 'dark' || savedTheme === 'system' ? savedTheme : 'light'
+  })
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme
+    const applyTheme = () => {
+      document.documentElement.dataset.theme = theme === 'system'
+        ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        : theme
+    }
+    const onThemeChange = (event: Event) => {
+      const selectedTheme = (event as CustomEvent<'light' | 'dark' | 'system'>).detail
+      if (selectedTheme === 'light' || selectedTheme === 'dark' || selectedTheme === 'system') {
+        setTheme(selectedTheme)
+      }
+    }
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    applyTheme()
     localStorage.setItem('jobpilot-theme', theme)
+    window.addEventListener('jobpilot-theme-change', onThemeChange)
+    media.addEventListener('change', applyTheme)
+    return () => {
+      window.removeEventListener('jobpilot-theme-change', onThemeChange)
+      media.removeEventListener('change', applyTheme)
+    }
   }, [theme])
 
   const title = useMemo(() => {
+    if (location.pathname === '/dashboard') return 'Dashboard'
     if (location.pathname.startsWith('/applications')) return 'Applications'
     if (location.pathname === '/profile') return 'My Profile'
     if (location.pathname === '/resumes') return 'Documents'
@@ -62,6 +87,13 @@ function AppShell({ children }: { children: React.ReactNode }) {
     if (location.pathname.startsWith('/ai-apply')) return 'Application review'
     return 'AI Agent'
   }, [location.pathname])
+  const agentStatus = isDemoMode
+    ? 'Preview mode'
+    : capabilitiesQuery.loading
+      ? 'Checking agent'
+      : capabilitiesQuery.data?.available
+        ? 'Agent available'
+        : 'Agent unavailable'
 
   function startNewTask() {
     navigate('/agent', { state: { newTask: Date.now() } })
@@ -84,6 +116,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
         </section>
         <nav className="sidebar-nav secondary-nav" aria-label="My workspace">
           <div className="sidebar-section-heading">My work</div>
+          <button className={`nav-item ${location.pathname === '/dashboard' ? 'active' : ''}`} onClick={() => { navigate('/dashboard'); setDrawerOpen(false) }} type="button">
+            <Activity size={18}/><span>Dashboard</span>
+          </button>
           <button className={`nav-item ${location.pathname.startsWith('/applications') ? 'active' : ''}`} onClick={() => { navigate('/applications'); setDrawerOpen(false) }} type="button">
             <BriefcaseBusiness size={18} /><span>Applications</span>
           </button>
@@ -127,9 +162,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
           </button>
           <div className="workspace-heading"><span>Workspace</span><b>/</b>{title}</div>
           <div className="topbar-actions">
-            <span className="agent-status"><span className="status-dot" />{isDemoMode ? 'Preview mode' : 'Agent unavailable'}</span>
-            <button className="icon-button" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} aria-label="Toggle theme">
-              {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+            <span className="agent-status"><span className="status-dot" />{agentStatus}</span>
+            <button className="icon-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme">
+              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
           </div>
         </header>
@@ -141,12 +176,11 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
 function RouteGuard({ children }: { children: React.ReactNode }) {
   const location = useLocation()
-  const [restoring, setRestoring] = useState(!isDemoMode)
+  const [restoring, setRestoring] = useState(!isDemoMode && !readStoredAuth())
   const [authenticated, setAuthenticated] = useState(isDemoMode || !!readStoredAuth())
 
   useEffect(() => {
     if (isDemoMode || authenticated) {
-      setRestoring(false)
       return
     }
 
@@ -171,7 +205,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/agent" element={<RouteGuard><AgentWorkspace /></RouteGuard>} />
         <Route path="/workspace" element={<Navigate to="/agent" replace />} />
-        <Route path="/dashboard" element={<Navigate to="/agent" replace />} />
+        <Route path="/dashboard" element={<RouteGuard><Dashboard /></RouteGuard>} />
         <Route path="/profile" element={<RouteGuard><Profile /></RouteGuard>} />
         <Route path="/resumes" element={<RouteGuard><Resumes /></RouteGuard>} />
         <Route path="/jobs" element={<RouteGuard><Jobs /></RouteGuard>} />
